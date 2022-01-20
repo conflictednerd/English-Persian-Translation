@@ -13,7 +13,7 @@ def get_parser():
                         default=False, help='use if you want to train the model')
     parser.add_argument('--test', action='store_true', default=False,
                         help='use if you want the model to report performance on a held-out test set')
-    parser.add_argument('--data_path', default='./data/',
+    parser.add_argument('--data_path', default='./data/mizan/',
                         help='directory where training data is stored')
     parser.add_argument('--models_dir', default='./models_dir/',
                         help='directory where models are saved to/loaded from')
@@ -33,11 +33,11 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'Model "{args.model}" is not supported')
 
-    if args.train:
-        model.train(args)
-
-    if args.test:
-        model.test(args)
-
-    while True:
-        print(model.translate(input()))
+    # if args.train:
+    #     model.train(args)
+    #
+    # if args.test:
+    #     model.test(args)
+    #
+    # while True:
+    #     print(model.translate(input()))
