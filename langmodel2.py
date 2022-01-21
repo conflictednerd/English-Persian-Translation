@@ -8,26 +8,12 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (AdamW, AutoConfig, AutoTokenizer,
-                          DataCollatorWithPadding, MBart50TokenizerFast,
-                          MBartForConditionalGeneration, Trainer,
-                          TrainingArguments)
+                          DataCollatorWithPadding, M2M100Config,
+                          M2M100ForConditionalGeneration, M2M100Tokenizer,
+                          MBart50TokenizerFast, MBartForConditionalGeneration,
+                          Trainer, TrainingArguments)
 
 from translator import Translator
-
-
-class TranslationDataset(torch.utils.data.Dataset):
-    def __init__(self, english_encodings, farsi_encodings):
-        self.english_encodings = english_encodings
-        self.farsi = farsi_encodings
-
-    def __getitem__(self, idx):
-        item = {key: torch.tensor(val[idx])
-                for key, val in self.english_encodings.items()}
-        item['labels'] = torch.tensor(self.farsi['input_ids'][idx])
-        return item
-
-    def __len__(self):
-        return len(self.farsi['input_ids'])
 
 
 class LMTranslator2(Translator):
@@ -37,12 +23,11 @@ class LMTranslator2(Translator):
         self.MODELS_DIR = args.models_dir
         self.DEVICE = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = MBartForConditionalGeneration.from_pretrained(
-            self.MODELS_DIR if args.load_model else "facebook/mbart-large-50-many-to-many-mmt").to(
-            self.DEVICE)
-        self.tokenizer = MBart50TokenizerFast.from_pretrained(
-            self.MODELS_DIR if args.load_model else "facebook/mbart-large-50-many-to-many-mmt",
-            src_lang='en_XX', tgt_lang='fa_IR')
+        self.model = M2M100ForConditionalGeneration.from_pretrained(
+            self.MODELS_DIR if args.load_model else 'facebook/m2m100_418M').to(self.DEVICE)
+        self.tokenizer = M2M100Tokenizer.from_pretrained(
+            self.MODELS_DIR if args.load_model else'facebook/m2m100_418M', src_lang='en', tgt_lang='fa')
+
         self.dataset = self.load_dataset()
         if args.train:
             self.train(args)
@@ -63,15 +48,26 @@ class LMTranslator2(Translator):
         '''
         # Load from file
         dset = load_dataset('csv', data_files={'train': 'train.tsv', 'val': 'dev.tsv', 'test': 'test.tsv'}, column_names=[
-            'eng', 'fa', 'type'], delimiter='\t')
+            'en', 'fa', 'type'], delimiter='\t')
 
         # select rows
         dset = dset.filter(lambda batch: np.array(
             batch['type']) in ['mizan_train_en_fa', 'mizan_dev_en_fa', 'mizan_test_en_fa'])
 
         # normalize
-        dset = dset.map(lambda batch: {'eng': [self.clean_en(x) for x in batch['eng']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
+        dset = dset.map(lambda batch: {'en': [self.clean_en(x) for x in batch['en']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
                         x if x else 'other' for x in batch['type']]}, batched=True)
+
+        # tokenize
+        def tknize(batch):
+            model_inputs = self.tokenizer(
+                batch['en'], max_length=256, truncation=True, return_tensors='pt')
+            with self.tokenizer.as_target_tokenizer():
+                labels = self.tokenizer(
+                    batch['fa'], max_length=256, truncation=True, return_tensors='pt').input_ids
+            model_inputs['labels'] = labels
+            return model_inputs
+        dset = dset.map(tknize, batched=True)
 
         return dset
 
