@@ -47,7 +47,7 @@ class Translator(ABC):
             r"[\xad\ufeff\u200e\u200d\u200b\x7f\u202a\u2003\xa0\u206e\u200c\x9d\u200C\u200c\u2005\u2009\u200a\u202f\t\u200c]+")
         # to be removed
         self.deleted_pattern = re.compile(
-            r"([^\w\s]|\d|[\|\[]]|\"|'ٍ|[0-9]|¬|[a-zA-Z]|[؛“،,”‘۔’’‘–]|[|\.÷+\:\-\?»\=\{}\*«_…\؟!/ـ]|[۲۹۱۷۸۵۶۴۴۳]|[\\u\\x]|[\(\)]|[۰'ٓ۫'ٔ]|[ٓٔ]|[ًٌٍْﹼ،َُِّ«ٰ»ٖء]|\[]|\[\])")
+            r"([^\w\s]|\d|[\|\[]]|\"|'ٍ|¬|[a-zA-Z]|[؛“،,”‘۔’’‘–]|[|\.÷+\:\-\?»\=\{}\*«_…\؟!/ـ]|[۲۹۱۷۸۵۶۴۴۳]|[\\u\\x]|[\(\)]|[۰'ٓ۫'ٔ]|[ٓٔ]|[ًٌٍْﹼ،َُِّ«ٰ»ٖء]|\[]|\[\])")
         self.special_chars = re.compile('|'.join(['²', '³', 'µ', 'À', 'Á', 'Â', 'Ç', 'È', 'É', 'Ê', 'Í', 'Ö', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'ç', 'è', 'é', 'ê', 'í', 'î', 'ï', 'ñ', 'ó', 'ô', 'õ', 'ö', 'ø', 'ú', 'ü', 'ý', 'ā', 'č', 'ē', 'ę', 'ğ', 'ī', 'ı', 'ř', 'ş', 'š', 'ū', 'ž', 'Ɛ', 'Α', 'Κ',
                                         'ά', 'ή', 'α', 'β', 'ε', 'ζ', 'η', 'ι', 'κ', 'ν', 'ο', 'π', 'ρ', 'ς', 'τ', 'υ', 'ό', 'Տ', 'ա', 'ե', 'թ', 'ի', 'ն', 'վ', 'ւ', 'ք', 'ḥ', 'ṭ', 'ῥ', '۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', ]))
         # for merging multiple consecutive newlines
@@ -74,7 +74,7 @@ class Translator(ABC):
     def test(self, args):
         pass
 
-    def clean(self, string: str) -> str:
+    def clean_fa(self, string: str) -> str:
         string = self.space_pattern.sub(" ", string)
         string = self.deleted_pattern.sub("", string)
         string = self.special_chars.sub("", string)
@@ -84,3 +84,9 @@ class Translator(ABC):
         string = self.normalizer.normalize(string)
 
         return string
+
+    def clean_en(self, string: str) -> str:
+        '''
+        Removes anything except alphanumeric characters. Lowers all alphabetical characters.
+        '''
+        return re.sub('[^A-Za-z0-9 ]+', '', string.lower())

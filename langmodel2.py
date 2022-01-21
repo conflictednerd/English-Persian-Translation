@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-from datasets import load_metric
+from datasets import load_dataset, load_metric
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -30,19 +30,20 @@ class TranslationDataset(torch.utils.data.Dataset):
         return len(self.farsi['input_ids'])
 
 
-class LMTranslator(Translator):
+class LMTranslator2(Translator):
     def __init__(self, args):
         super().__init__()
         self.CLEANIFY = False
-        self.train_data = []
-        self.test_data = []
+        self.MODELS_DIR = args.models_dir
         self.DEVICE = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = MBartForConditionalGeneration.from_pretrained("facebook/mbart-large-50-many-to-many-mmt").to(
+        self.model = MBartForConditionalGeneration.from_pretrained(
+            self.MODELS_DIR if args.load_model else "facebook/mbart-large-50-many-to-many-mmt").to(
             self.DEVICE)
-        self.tokenizer = MBart50TokenizerFast.from_pretrained("facebook/mbart-large-50-many-to-many-mmt",
-                                                              src_lang='en_XX', tgt_lang='fa_IR')
-        self.load_train_data(args.data_path)
+        self.tokenizer = MBart50TokenizerFast.from_pretrained(
+            self.MODELS_DIR if args.load_model else "facebook/mbart-large-50-many-to-many-mmt",
+            src_lang='en_XX', tgt_lang='fa_IR')
+        self.dataset = self.load_dataset()
         if args.train:
             self.train(args)
 
@@ -52,33 +53,27 @@ class LMTranslator(Translator):
     def load(self, path: str):
         pass
 
-    def save(self, path: str):
-        pass
+    def save(self):
+        self.tokenizer.save_pretrained(self.MODELS_DIR)
+        self.model.save_pretrained(self.MODELS_DIR)
 
-    def get_Dataset(self, data):
-        data_eng = self.tokenizer(data['english'].tolist(), padding=True)
-        data_farsi = self.tokenizer(data['farsi'].tolist(), padding=True)
-        return TranslationDataset(data_eng, data_farsi)
+    def load_dataset(self):
+        '''
+        loads from train.tsv, dev.tsv, test.tsv
+        '''
+        # Load from file
+        dset = load_dataset('csv', data_files={'train': 'train.tsv', 'val': 'dev.tsv', 'test': 'test.tsv'}, column_names=[
+            'eng', 'fa', 'type'], delimiter='\t')
 
-    def load_train_data(self, path):
-        farsi = ''
-        with open(os.path.join(path, 'mizan_fa.txt'), 'r', encoding='utf-8') as f:
-            farsi += self.clean_fa(f.read()) if self.CLEANIFY else f.read()
+        # select rows
+        dset = dset.filter(lambda batch: np.array(
+            batch['type']) in ['mizan_train_en_fa', 'mizan_dev_en_fa', 'mizan_test_en_fa'])
 
-        english = ''
-        with open(os.path.join(path, 'mizan_en.txt'), 'r', encoding='utf-8') as f:
-            english += f.read()
+        # normalize
+        dset = dset.map(lambda batch: {'eng': [self.clean_en(x) for x in batch['eng']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
+                        x if x else 'other' for x in batch['type']]}, batched=True)
 
-        farsi_parags = farsi.split('\n')
-        english_parags = english.split('\n')
-
-        all_data = {'farsi': farsi_parags, 'english': english_parags}
-        df = pd.DataFrame(all_data)
-
-        _, initial_df = train_test_split(df, test_size=0.1)
-        train_data, test_data = train_test_split(initial_df, test_size=0.1)
-        self.train_data = self.get_Dataset(train_data)
-        self.test_data = self.get_Dataset(test_data)
+        return dset
 
     def translate(self, src_txt: str):
         pass
