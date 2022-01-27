@@ -1,4 +1,6 @@
+from ctypes import Union
 import os
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -12,7 +14,9 @@ from transformers import (AdamW, AutoConfig, AutoTokenizer,
                           M2M100ForConditionalGeneration, M2M100Tokenizer,
                           MBart50TokenizerFast, MBartForConditionalGeneration,
                           Trainer, TrainingArguments)
+from sacrebleu.metrics import BLEU, TER
 
+from transformers import Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, Seq2SeqTrainer
 from translator import Translator
 
 
@@ -20,7 +24,7 @@ class LMTranslator2(Translator):
     def __init__(self, args):
         super().__init__()
         self.CLEANIFY = False
-        self.MODELS_DIR = args.models_dir
+        self.MODELS_DIR = os.path.join(args.models_dir, 'lm2')
         self.DEVICE = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
         self.model = M2M100ForConditionalGeneration.from_pretrained(
@@ -28,6 +32,7 @@ class LMTranslator2(Translator):
         self.tokenizer = M2M100Tokenizer.from_pretrained(
             self.MODELS_DIR if args.load_model else'facebook/m2m100_418M', src_lang='en', tgt_lang='fa')
 
+        self.metric = load_metric('sacrebleu')
         self.dataset = self.load_dataset()
         if args.train:
             self.train(args)
@@ -71,44 +76,64 @@ class LMTranslator2(Translator):
 
         return dset
 
-    def translate(self, src_txt: str):
-        pass
+    def translate(self, src_txt: Union[str, List], from_text=True):
+        src_txt = [src_txt] if isinstance(src_txt, str) else src_txt
+        translated = self.model.generate(
+            **self.tokenizer(src_txt, return_tensors='pt', max_length=256, truncation=True, padding=True) if from_text else src_txt,
+            forced_bos_token_id=self.tokenizer.lang_code_to_id['fa'])
+        return self.tokenizer.batch_decode(translated, skip_special_tokens=True)
 
     def train(self, args):
-        pass
+        # How can we force the first token to be 'fa'?
+        self.model.config.bos_token_id = self.tokenizer.lang_code_to_id['fa']
+        training_args = Seq2SeqTrainingArguments(
+            f'{self.MODELS_DIR}/lm2-finetuned-en-fa',
+            evaluation_strategy='epoch',
+            learning_rate=args.lm2_lr,
+            per_device_train_batch_size=args.lm2_batch_size,
+            per_device_eval_batch_size=args.lm2_batch_size,
+            weight_decay=5e-3,
+            save_total_limit=1,
+            num_train_epochs=1,
+            predict_with_generate=True,
+            generation_num_beams=8,
+        )
+
+        data_collator = DataCollatorForSeq2Seq(
+            self.tokenizer, model=self.model)
+
+        trainer = Seq2SeqTrainer(
+            self.model,
+            training_args,
+            train_dataset=self.dataset['train'],
+            eval_dataset=self.dataset['val'],  # should I do test here?
+            data_collator=data_collator,
+            tokenizer=self.tokenizer,
+            compute_metrics=self.compute_metrics,
+        )
+
+        trainer.train()
+        trainer.save_model(self.MODELS_DIR)
+
+    def compute_metrics(self, predictions):
+        preds, refs = predictions
+        preds = preds[0] if isinstance(preds, tuple) else preds
+        decoded_preds = self.tokenizer.batch_decode(
+            preds, skip_special_tokens=True)
+        decoded_refs = self.tokenizer.batch_decode(
+            refs, skip_special_tokens=True)
+
+        result = self.metric.compute(
+            predictions=[x.strip() for x in decoded_preds],
+            references=[[x.strip()] for x in decoded_refs]
+        )
+        return {key: round(val, 3) for key, val in result.items()}
 
     def test(self, args):
-        data_collator = DataCollatorWithPadding(self.tokenizer)
-        test_dataloader = DataLoader(self.test_data, batch_size=4, collate_fn=data_collator,
-                                     shuffle=False)
-        # print(self.test_data[0])
-        metric = load_metric("bleu")
+        testset = self.dataset['test']
+        refs = [[x] for x in testset['fa']]
+        preds = self.translate(testset['en'])
 
-        self.model.eval()
-
-        print(len(test_dataloader))
-
-        for batch_idx, batch in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
-
-            if batch_idx == 5:
-                exit(0)
-            X1 = batch['input_ids'].to(self.DEVICE)
-            # # print(X1.shape)
-            y1 = batch['labels'].to(self.DEVICE)
-            pred = self.model(X1, attention_mask=batch['attention_mask'].to(
-                self.DEVICE))  # TODO: how to manage Seq2Seq batches here?
-
-        # for index, row in tqdm(self.test_data.iterrows(), total=len(self.test_data)):
-        #     encoded_eng = self.tokenizer(row['english'], return_tensors="pt").to(self.DEVICE)
-        #
-        #     generated_tokens = self.model.generate(**encoded_eng,
-        #                                            forced_bos_token_id=self.tokenizer.lang_code_to_id["fa_IR"])
-        #
-        #     model_predictions = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-        #     ref = [[row['farsi'].split()]]
-        #     pred = [model_predictions[0].split()]
-        #     metric.add_batch(predictions=pred, references=ref)
-        #
-        # final_score = metric.compute()
-        #
-        # print(final_score)
+        result = self.metric.compute(predictions=preds, references=refs)
+        print(result)
+        return result
