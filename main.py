@@ -11,6 +11,8 @@ def get_parser():
                         help='type of translation model: lm, lm2')
     parser.add_argument('--load_model', action='store_true', default=False,
                         help='use if you want to load the model from file')
+    parser.add_argument('--over_write_test', action='store_true', default=False,
+                        help='whether or not to over write the existing test dataset')
     parser.add_argument('--train', action='store_true',
                         default=False, help='use if you want to train the model')
     parser.add_argument('--test', action='store_true', default=False,
