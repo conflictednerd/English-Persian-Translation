@@ -62,7 +62,9 @@ class LMTranslator2(Translator):
         dset = dset.filter(lambda batch: isinstance(
             batch['en'], str) and isinstance(batch['fa'], str))
         dset['train'] = dset['train'].shuffle(seed=23).select(
-            range(20_000))  # ONLY USE 10000 SAMPLES
+            range(10_000))  # ONLY USE 10000 SAMPLES
+        dset['test'] = dset['test'].shuffle(seed=24).select(
+            range(2_000))  # ONLY USE 2000 SAMPLES
         # normalize
         dset = dset.map(lambda batch: {'en': [self.clean_en(x) for x in batch['en']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
                         x if x else 'other' for x in batch['type']]}, batched=True)
@@ -141,7 +143,7 @@ class LMTranslator2(Translator):
         testset = self.dataset['test']
         refs = [[x] for x in testset['fa']]
         bsz = 10
-        for i in range(0, len(testset['en'])-1, bsz):
+        for i in tqdm(range(0, len(testset['en'])-1, bsz)):
             batch = testset['en'][i:i+bsz]
             preds = self.translate(batch)
             metric.add_batch(predictions=preds, references=refs[i:i+bsz])
