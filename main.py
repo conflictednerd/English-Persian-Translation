@@ -43,16 +43,16 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'Model "{args.model}" is not supported')
 
-    # if args.train:
-    #     print('Training started...')
-    #     model.train(args)
-    #     print('Training finished.')
+    if args.train:
+        print('Training started...')
+        model.train(args)
+        print('Training finished.')
     
-    # if args.test:
-    #     print('Testing started...')
-    #     model.test(args)
-    #     print('Testing finished.')
+    if args.test:
+        print('Testing started...')
+        model.test(args)
+        print('Testing finished.')
     
-    # while True:
-    #     print('Input a sentence to be translated:')
-    #     print(model.translate(input()))
+    while True:
+        print('Input a sentence to be translated:')
+        print(model.translate(input()))

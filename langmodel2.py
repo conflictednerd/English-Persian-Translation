@@ -1,4 +1,4 @@
-from ctypes import Union
+from typing import Union
 import os
 from typing import List
 
@@ -25,6 +25,7 @@ class LMTranslator2(Translator):
         super().__init__()
         self.CLEANIFY = False
         self.MODELS_DIR = os.path.join(args.models_dir, 'lm2')
+        self.DATA_PATH = './data/'
         self.DEVICE = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu')
         self.model = M2M100ForConditionalGeneration.from_pretrained(
@@ -34,11 +35,11 @@ class LMTranslator2(Translator):
 
         self.metric = load_metric('sacrebleu')
         self.dataset = self.load_dataset()
-        if args.train:
-            self.train(args)
+        # if args.train:
+        #     self.train(args)
 
-        if args.test:
-            self.test(args)
+        # if args.test:
+        #     self.test(args)
 
     def load(self, path: str):
         pass
@@ -52,13 +53,15 @@ class LMTranslator2(Translator):
         loads from train.tsv, dev.tsv, test.tsv
         '''
         # Load from file
-        dset = load_dataset('csv', data_files={'train': 'train.tsv', 'val': 'dev.tsv', 'test': 'test.tsv'}, column_names=[
+        dset = load_dataset('csv', data_files={'train': os.path.join(self.DATA_PATH, 'train.tsv'), 'val': os.path.join(self.DATA_PATH, 'dev.tsv'), 'test': os.path.join(self.DATA_PATH, 'test.tsv')}, column_names=[
             'en', 'fa', 'type'], delimiter='\t')
 
         # select rows
         dset = dset.filter(lambda batch: np.array(
             batch['type']) in ['mizan_train_en_fa', 'mizan_dev_en_fa', 'mizan_test_en_fa'])
 
+        dset = dset.filter(lambda batch: isinstance(batch['en'], str) and isinstance(batch['fa'], str))
+        dset['train'] = dset['train'].shuffle(seed=23).select(range(10_000)) # ONLY USE 10000 SAMPLES
         # normalize
         dset = dset.map(lambda batch: {'en': [self.clean_en(x) for x in batch['en']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
                         x if x else 'other' for x in batch['type']]}, batched=True)
@@ -66,10 +69,10 @@ class LMTranslator2(Translator):
         # tokenize
         def tknize(batch):
             model_inputs = self.tokenizer(
-                batch['en'], max_length=256, truncation=True, return_tensors='pt')
+                batch['en'], max_length=128, truncation=True, return_tensors='pt')
             with self.tokenizer.as_target_tokenizer():
                 labels = self.tokenizer(
-                    batch['fa'], max_length=256, truncation=True, return_tensors='pt').input_ids
+                    batch['fa'], max_length=128, truncation=True, return_tensors='pt').input_ids
             model_inputs['labels'] = labels
             return model_inputs
         dset = dset.map(tknize, batched=True)
@@ -79,7 +82,7 @@ class LMTranslator2(Translator):
     def translate(self, src_txt: Union[str, List], from_text=True):
         src_txt = [src_txt] if isinstance(src_txt, str) else src_txt
         translated = self.model.generate(
-            **self.tokenizer(src_txt, return_tensors='pt', max_length=256, truncation=True, padding=True) if from_text else src_txt,
+            **self.tokenizer(src_txt, return_tensors='pt', max_length=256, truncation=True, padding=True).to(self.DEVICE) if from_text else src_txt,
             forced_bos_token_id=self.tokenizer.lang_code_to_id['fa'])
         return self.tokenizer.batch_decode(translated, skip_special_tokens=True)
 
@@ -100,13 +103,14 @@ class LMTranslator2(Translator):
         )
 
         data_collator = DataCollatorForSeq2Seq(
-            self.tokenizer, model=self.model)
+            self.tokenizer, model=self.model, padding=True)
 
+        dset = self.dataset.remove_columns(['en', 'fa', 'type'])
         trainer = Seq2SeqTrainer(
             self.model,
             training_args,
-            train_dataset=self.dataset['train'],
-            eval_dataset=self.dataset['val'],  # should I do test here?
+            train_dataset=dset['train'],
+            eval_dataset=dset['val'],  # should I do test here?
             data_collator=data_collator,
             tokenizer=self.tokenizer,
             compute_metrics=self.compute_metrics,
@@ -120,6 +124,8 @@ class LMTranslator2(Translator):
         preds = preds[0] if isinstance(preds, tuple) else preds
         decoded_preds = self.tokenizer.batch_decode(
             preds, skip_special_tokens=True)
+        # datacollator pads the labels with -100 which can't be decoded
+        refs = np.where(refs != -100, refs, self.tokenizer.pad_token_id)
         decoded_refs = self.tokenizer.batch_decode(
             refs, skip_special_tokens=True)
 
@@ -132,7 +138,7 @@ class LMTranslator2(Translator):
     def test(self, args):
         testset = self.dataset['test']
         refs = [[x] for x in testset['fa']]
-        preds = self.translate(testset['en'])
+        preds = self.translate(testset['en'].to(self.DEVICE))
 
         result = self.metric.compute(predictions=preds, references=refs)
         print(result)
