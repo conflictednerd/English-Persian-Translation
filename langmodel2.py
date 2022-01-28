@@ -62,7 +62,7 @@ class LMTranslator2(Translator):
         dset = dset.filter(lambda batch: isinstance(
             batch['en'], str) and isinstance(batch['fa'], str))
         dset['train'] = dset['train'].shuffle(seed=23).select(
-            range(10_000))  # ONLY USE 10000 SAMPLES
+            range(20_000))  # ONLY USE 10000 SAMPLES
         # normalize
         dset = dset.map(lambda batch: {'en': [self.clean_en(x) for x in batch['en']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
                         x if x else 'other' for x in batch['type']]}, batched=True)
@@ -98,7 +98,7 @@ class LMTranslator2(Translator):
             per_device_eval_batch_size=args.lm2_batch_size,
             weight_decay=5e-3,
             save_total_limit=1,
-            num_train_epochs=1,
+            num_train_epochs=2,
             predict_with_generate=True,
             generation_num_beams=8,
         )
@@ -134,13 +134,18 @@ class LMTranslator2(Translator):
             predictions=[x.strip() for x in decoded_preds],
             references=[[x.strip()] for x in decoded_refs]
         )
-        return {key: round(val, 3) for key, val in result.items()}
+        return {key: round(val, 3) if not isinstance(val, list) else val for key, val in result.items()}
 
     def test(self, args):
+        metric = load_metric('sacrebleu')
         testset = self.dataset['test']
         refs = [[x] for x in testset['fa']]
-        preds = self.translate(testset['en'].to(self.DEVICE))
+        bsz = 10
+        for i in range(0, len(testset['en'])-1, bsz):
+            batch = testset['en'][i:i+bsz]
+            preds = self.translate(batch)
+            metric.add_batch(predictions=preds, references=refs[i:i+bsz])
 
-        result = self.metric.compute(predictions=preds, references=refs)
+        result = metric.compute()
         print(result)
         return result

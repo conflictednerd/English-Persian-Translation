@@ -23,7 +23,7 @@ def get_parser():
     # Language model parameters:
 
     # LM2 parameters
-    parser.add_argument('--lm2_batch_size', default=32,
+    parser.add_argument('--lm2_batch_size', default=8,
                         type=int, help='batch size for fine-tunning lm2 model')
     parser.add_argument('--lm2_lr', default=1e-5,
                         type=float, help='learning rate for fine-tunning lm2 model')
