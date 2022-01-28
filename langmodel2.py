@@ -1,22 +1,21 @@
-from typing import Union
 import os
-from typing import List
+from typing import List, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from datasets import load_dataset, load_metric
+from sacrebleu.metrics import BLEU, TER
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (AdamW, AutoConfig, AutoTokenizer,
-                          DataCollatorWithPadding, M2M100Config,
-                          M2M100ForConditionalGeneration, M2M100Tokenizer,
-                          MBart50TokenizerFast, MBartForConditionalGeneration,
-                          Trainer, TrainingArguments)
-from sacrebleu.metrics import BLEU, TER
+                          DataCollatorForSeq2Seq, DataCollatorWithPadding,
+                          M2M100Config, M2M100ForConditionalGeneration,
+                          M2M100Tokenizer, MBart50TokenizerFast,
+                          MBartForConditionalGeneration, Seq2SeqTrainer,
+                          Seq2SeqTrainingArguments, Trainer, TrainingArguments)
 
-from transformers import Seq2SeqTrainingArguments, DataCollatorForSeq2Seq, Seq2SeqTrainer
 from translator import Translator
 
 
@@ -60,8 +59,10 @@ class LMTranslator2(Translator):
         dset = dset.filter(lambda batch: np.array(
             batch['type']) in ['mizan_train_en_fa', 'mizan_dev_en_fa', 'mizan_test_en_fa'])
 
-        dset = dset.filter(lambda batch: isinstance(batch['en'], str) and isinstance(batch['fa'], str))
-        dset['train'] = dset['train'].shuffle(seed=23).select(range(10_000)) # ONLY USE 10000 SAMPLES
+        dset = dset.filter(lambda batch: isinstance(
+            batch['en'], str) and isinstance(batch['fa'], str))
+        dset['train'] = dset['train'].shuffle(seed=23).select(
+            range(10_000))  # ONLY USE 10000 SAMPLES
         # normalize
         dset = dset.map(lambda batch: {'en': [self.clean_en(x) for x in batch['en']], 'fa': [self.clean_fa(x) for x in batch['fa']], 'type': [
                         x if x else 'other' for x in batch['type']]}, batched=True)
@@ -69,10 +70,10 @@ class LMTranslator2(Translator):
         # tokenize
         def tknize(batch):
             model_inputs = self.tokenizer(
-                batch['en'], max_length=128, truncation=True, return_tensors='pt')
+                batch['en'], max_length=128, truncation=True)
             with self.tokenizer.as_target_tokenizer():
                 labels = self.tokenizer(
-                    batch['fa'], max_length=128, truncation=True, return_tensors='pt').input_ids
+                    batch['fa'], max_length=128, truncation=True).input_ids
             model_inputs['labels'] = labels
             return model_inputs
         dset = dset.map(tknize, batched=True)
